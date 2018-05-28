@@ -212,6 +212,7 @@ class VivintCloudSession(object):
 
         OPERATION_MODES = {0: "off", 1: "heat", 2: "cool", 3: "heat-cool"}
         FAN_MODES = {0: "off", 1: "always", 99: "15m", 100: "30m", 101: "60m"}
+        CLIMATE_STATES = ["home", "away", "sleep", "vacation"]
 
         # Some general notes:
         #
@@ -220,6 +221,36 @@ class VivintCloudSession(object):
 
         def __init__(self, body, panel_root):
             super().__init__(body, panel_root)
+
+        def set_state(self, state):
+            """
+            Set the state of the panel location to one of the Smart Assistant states.
+            
+            This is a bit of a semantic oddity, as the change is made to the panel
+            object, but it only ever makes sense in the context of a thermostat in the
+            apps, except in the rules section.
+            """
+            if state not in self.CLIMATE_STATES:
+                raise ValueError(
+                    "State must be one of %s" % repr(self.CLIMATE_STATES))
+
+            request_kwargs = dict(
+                method="PUT",
+                url="%s/api/systems/%d?includerules=false" %
+                (VIVINT_API_ENDPOINT, self.get_panel_root().id()),
+                body=json.dumps({
+                    "csce": state
+                }).encode(("utf-8")),
+                headers={
+                    "Content-Type":
+                    "application/json;charset=utf-8",
+                    "Authorization":
+                    "Bearer %s" % self.get_panel_root().get_bearer_token()
+                })
+            resp = self._pool.request(**request_kwargs)
+
+            if resp.status != 200:
+                raise Exception("Setting state resulted in non-200 response")
 
         def set_operation_mode(self, mode):
             """
