@@ -78,3 +78,9 @@ GET @ "https://ps18.pubnub.com/subscribe/sub-c-638b7dcf-84f3-442b-8eca-f3efa4bd0
 ## General Notes
 
 It appears that timestamps are in Unix epoch time, but some are in the units of us, or 100ns, ns, or other funky units. Just use caution.
+
+## Reverse Engineering Notes
+
+### Authentication
+
+Vivint uses, as far as I can tell, PingFederate to handle their SSO, and this includes the web login. There's some illuminating commentary on [this support thread](https://support.pingidentity.com/Topic-Detail/PF-Cookie) that references the "HTML Form adapter", which is the behaviour we see. This is relevant as the PF token is a PingFederate token, which explains a fair bit.
