@@ -450,19 +450,25 @@ class VivintCloudSession(object):
         # Prefer username/password authentication if both are provided.
         if username is not None and password is not None:
             self.__auth_elements = self.__login(username, password)
+            # TODO Obfuscate the username and password here
+            self.__username = username
+            self.__password = password
         elif state is not None and nonce is not None and pf_token is not None:
+            self.__username = None
+            self.__password = None
+
             self.__auth_elements = {
                 "nonce": [nonce],
                 "state": [state],
                 "pf_token": {
                     # TODO This isn't right
                     # It's probably a fixed number of urlsafe b64 encoded bytes.
-                    "short": pf_token[:24],
-                    "long": pf_token
+                    # "short": [pf_token[:24]],
+                    "long": [pf_token]
                 },
-                "client_id": self.__get_client_id(),
-                # This is unnecessary, and only used for password logins.
-                "api_id": None,
+                # "client_id": self.__get_client_id(),
+                # # This is unnecessary, and only used for password logins.
+                # "api_id": None,
                 "id_token": []
             }
             self.__refresh_token()
@@ -480,6 +486,7 @@ class VivintCloudSession(object):
         """
         Keep track of a cloud session's id tokens, and whenever one is nearing expiry, refresh it.
         """
+        # TODO Make this exception-safe
         while self.__run_threads:
             if self.__parse_id_token()["payload"]["exp"] - time.time() < 60:
                 self.__refresh_token()
@@ -534,7 +541,7 @@ class VivintCloudSession(object):
                 "nonce": nonce,
                 "state": "replay:%s" % state,
                 "response_type": "id_token",
-                "client_id": self.__auth_elements["client_id"],
+                "client_id": self.__get_client_id(),
                 "redirect_uri": "https://www.vivintsky.com/app/",
                 "scope": "openid email",
                 "pfidpadapterid": "vivintidp1"
@@ -542,20 +549,42 @@ class VivintCloudSession(object):
             headers={
                 "Cookie":
                 "oidc_nonce=%s; oauth_state=%s; PF=%s;" %
-                (self.__auth_elements["nonce"][0],
-                 self.__auth_elements["state"][0],
-                 self.__auth_elements["pf_token"]["long"])
+                (self.__auth_elements["nonce"][-1],
+                 self.__auth_elements["state"][-1],
+                 self.__auth_elements["pf_token"]["long"][-1])
             })
 
-        if resp.status != 200:
-            raise Exception("Unable to refresh token with non-200 error")
+        if resp.status == 200:
+            resp_body = json.loads(resp.data.decode())
+            token_parts = self.__parse_id_token(resp_body["id_token"])
+            self.__auth_elements["id_token"].append(resp_body["id_token"])
 
-        resp_body = json.loads(resp.data.decode())
-        token_parts = self.__parse_id_token(resp_body["id_token"])
-        self.__auth_elements["id_token"].append(resp_body["id_token"])
-        self.__auth_elements["state"].append(
-            unquote(resp_body["state"]).split(":", 1)[1])
-        self.__auth_elements["nonce"].append(token_parts["payload"]["nonce"])
+            # It is the last valid value that we care about, because the new ones
+            # generated aren't used for anything... oddly enough. So append the one
+            # we used to get the new token to the end, so we keep using it.
+            self.__auth_elements["state"] += [
+                unquote(resp_body["state"]).split(":", 1)[1],
+                self.__auth_elements["state"][-2]
+            ]
+            self.__auth_elements["nonce"] += [
+                token_parts["payload"]["nonce"],
+                self.__auth_elements["nonce"][-2]
+            ]
+        if resp.status != 200:
+            # Attempt to re-login if there is a username and password
+            if self.__username is not None and self.__password is not None:
+                new_auth_elements = self.__login(self.__username,
+                                                 self.__password)
+                self.__auth_elements["id_token"] += new_auth_elements[
+                    "id_token"]
+                self.__auth_elements["pf_token"]["long"] += new_auth_elements[
+                    "pf_token"]["long"]
+                self.__auth_elements["state"] += new_auth_elements["state"]
+                self.__auth_elements["nonce"] += new_auth_elements["nonce"]
+            else:
+                raise Exception(
+                    "Unable to refresh token with non-200 error, and no username/password available"
+                )
 
     def __parse_id_token(self, id_token=None):
         """
@@ -744,12 +773,12 @@ class VivintCloudSession(object):
             "nonce": [nonce, id_token_parts["payload"]["nonce"]],
             "state":
             [state, unquote(location_params["state"]).split(":", 1)[1]],
-            "client_id": client_id,
+            # "client_id": client_id,
             "pf_token": {
-                "short": pf_token,
-                "long": pf_token_long
+                # "short": [pf_token],
+                "long": [pf_token_long]
             },
-            "api_id": api_id,
+            # "api_id": api_id,
             "id_token": [location_params["id_token"]]
         }
 

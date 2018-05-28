@@ -17,6 +17,8 @@ Authentication is handled in one of two ways:
 
 As long as the process is running and state is maintained (think as a systemd process, script, long-lived container, or lambda function that doesn't 'time out'), the bearer token is automatically refreshed regularly, or when it expires (if regular refreshes were not successful).
 
+**NOTE:** The tokens obtained from an email login are valid for refresh for up to 6 hours. Beyond that you will need to re-authenticate. This occurs automatically if the session was created with a username and email, in which case a fresh login will be attempted if a token refresh fails.
+
 ### Thermostats
 
 Thermostat functionality was the main driver for this project, as currently you cannot have both the Smart Assistant control the thermostat, as well as a schedule for temperature setpoints. Rules can control the fan (on/off/toggle) based on time of day and duration, but not temperature.
