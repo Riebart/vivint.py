@@ -24,10 +24,11 @@ def periodic_update(interval):
             ])
             for thermostat in thermostats:
                 state = thermostat.current_state()
+                state["panel_arm_state"] = panel.get_armed_state()
                 state["panel_id"] = panel.id()
                 state["thermostat_id"] = thermostat.id()
                 state["timestamp"] = time.time()
-                print(json.dumps(state))
+                print(json.dumps(state, sort_keys=True))
         time.sleep(interval)
 
 

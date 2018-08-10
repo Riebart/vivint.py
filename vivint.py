@@ -129,7 +129,10 @@ class VivintCloudSession(object):
         Represents the top-level device that is a panel at a Vivint enabled location.
         """
 
+        ARM_STATES = {0: "disarmed", 3: "armed_stay", 4: "armed_away"}
+
         def __init__(self, session, panel_descriptor):
+            super().__init__(panel_descriptor, self)
             self.__session = session
             self.__pool = _urllib_pool()
             self.__description = panel_descriptor
@@ -180,11 +183,23 @@ class VivintCloudSession(object):
             """
             return self.__description["panid"]
 
+        def get_armed_state(self):
+            """ 
+            Return the panel's arm state 
+            """
+            return self.ARM_STATES[self.__description["par"][0]["s"]]
+
         def address(self):
             """
             Return the panel's address
             """
             return self.__description["add"]
+
+        def climate_state(self):
+            """
+            Return the climate state of the panel
+            """
+            return self.__system["system"]["csce"]
 
         def get_devices(self, device_type_set=None, include_unknown=False):
             """
@@ -443,6 +458,8 @@ class VivintCloudSession(object):
                             key=lambda i: i[1])[0]
 
             return {
+                "climate_state": self.get_panel_root().climate_state(),
+                "fan_mode": self.FAN_MODES[self._body["fm"]],
                 "humidity": self._body["hmdt"],
                 "temperature": current,
                 "mode": self.OPERATION_MODES[mode_id],
