@@ -14,6 +14,11 @@ import urllib3
 import argparse
 import threading
 
+try:
+    import certifi
+except:
+    pass
+
 from http.cookies import SimpleCookie
 
 # pylint: disable=E0611,E0401
@@ -32,6 +37,14 @@ def _flip_dict(d):
     Flip a dictionary to map values to keys
     """
     return dict([(v, k) for k, v in d.items()])
+
+
+def _urllib_pool():
+    if "certifi" not in sys.modules:
+        return urllib3.PoolManager()
+    else:
+        return urllib3.PoolManager(
+            cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
 
 
 class VivintCloudSession(object):
@@ -71,7 +84,7 @@ class VivintCloudSession(object):
         def __init__(self, body, panel_root):
             self._body = body
             self.__panel_root = panel_root
-            self._pool = urllib3.PoolManager()
+            self._pool = _urllib_pool()
 
             # When set to False, this device will not be updated when the panel root's
             # update_devices() method is called.
@@ -118,7 +131,7 @@ class VivintCloudSession(object):
 
         def __init__(self, session, panel_descriptor):
             self.__session = session
-            self.__pool = urllib3.PoolManager()
+            self.__pool = _urllib_pool()
             self.__description = panel_descriptor
             self.__system = self.__get_system()
             self.__child_devices = []
@@ -154,9 +167,9 @@ class VivintCloudSession(object):
                 if d.receive_updates and d.get_panel_root() == self
             ]
 
-            device_dict = dict(
-                [(d["_id"], d)
-                 for d in self.__system["system"]["par"][0]["d"]])
+            device_dict = dict([
+                (d["_id"], d) for d in self.__system["system"]["par"][0]["d"]
+            ])
 
             for device in device_list:
                 device.update_body(device_dict[device.id()])
@@ -444,7 +457,7 @@ class VivintCloudSession(object):
                  state=None,
                  nonce=None,
                  pf_token=None):
-        self.__pool = urllib3.PoolManager()
+        self.__pool = _urllib_pool()
         self.__openid_config = self.__get_openid_config()
 
         # Prefer username/password authentication if both are provided.
@@ -616,9 +629,7 @@ class VivintCloudSession(object):
         resp = self.__pool.request(
             method="GET",
             url="%s/app/scripts/app.js" % VIVINT_API_ENDPOINT,
-            headers={
-                "User-Agent": "vivint.py"
-            })
+            headers={"User-Agent": "vivint.py"})
 
         if resp.status != 200:
             raise Exception(
@@ -649,17 +660,18 @@ class VivintCloudSession(object):
         login_form_resp = self.__pool.request(
             method="GET",
             url="%s/as/authorization.oauth2?%s" %
-            (VIVINT_AUTH_ENDPOINT, urlencode(
-                {
-                    "nonce": nonce,
-                    "state": "replay:%s" % state,
-                    "response_type": "id_token",
-                    "client_id": client_id,
-                    "redirect_uri": "%s/app/" % VIVINT_AUTH_ENDPOINT,
-                    "scope": "openid email",
-                    "pfidpadapterid": "vivintidp1"
-                },
-                quote_via=quote)),
+            (VIVINT_AUTH_ENDPOINT,
+             urlencode(
+                 {
+                     "nonce": nonce,
+                     "state": "replay:%s" % state,
+                     "response_type": "id_token",
+                     "client_id": client_id,
+                     "redirect_uri": "%s/app/" % VIVINT_AUTH_ENDPOINT,
+                     "scope": "openid email",
+                     "pfidpadapterid": "vivintidp1"
+                 },
+                 quote_via=quote)),
             headers={
                 "Referer": "%s/app/" % VIVINT_AUTH_ENDPOINT,
                 "User-Agent": "pyvint"
@@ -753,9 +765,8 @@ class VivintCloudSession(object):
                 "Unable to retrieve Location header from login response")
 
         location_params = dict([
-            kv.split("=", 1)
-            for kv in re.search(r'/#(.*)$', location_hdr).group(0)[2:].split(
-                "&")
+            kv.split("=", 1) for kv in re.search(r'/#(.*)$', location_hdr)
+            .group(0)[2:].split("&")
         ])
 
         if "id_token" not in location_params:
@@ -790,9 +801,7 @@ class VivintCloudSession(object):
         resp = self.__pool.request(
             method="GET",
             url="%s/api/authuser" % VIVINT_API_ENDPOINT,
-            headers={
-                "Authorization": "Bearer %s" % self.get_bearer_token()
-            })
+            headers={"Authorization": "Bearer %s" % self.get_bearer_token()})
 
         return json.loads(resp.data.decode())
 
