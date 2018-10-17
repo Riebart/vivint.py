@@ -15,6 +15,17 @@ import vivint
 running = True
 
 
+class StringJsonEncoder(json.JSONEncoder):
+    def default(self, obj):  # pylint: disable=E0202
+        try:
+            return json.JSONEncoder.default(self, obj)
+        except:
+            try:
+                return str(obj)
+            except:
+                return repr(obj)
+
+
 def __log(s, v):
     if v:
         print(s, file=sys.stderr)
@@ -83,4 +94,15 @@ if __name__ == "__main__":
 
     pargs = parser.parse_args()
 
-    periodic_update(pargs.interval, pargs.output, pargs.verbose)
+    while True:
+        try:
+            periodic_update(pargs.interval, pargs.output, pargs.verbose)
+        except Exception as e:
+            with open(pargs.output + ".errlog", "w+") as fp:
+                fp.write(
+                    json.dumps({
+                        "dict": e.__dict__,
+                        "repr": repr(e),
+                        "str": str(e)
+                    },
+                               cls=StringJsonEncoder))
