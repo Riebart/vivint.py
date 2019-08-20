@@ -129,7 +129,9 @@ class VivintCloudSession(object):
                 VivintCloudSession.VivintDevice.DEVICE_TYPE_LIGHT_MODULE:
                 VivintCloudSession.MultiSwitch,
                 VivintCloudSession.VivintDevice.DEVICE_TYPE_MOTION_SENSOR:
-                VivintCloudSession.MotionSensor
+                VivintCloudSession.MotionSensor,
+                VivintCloudSession.VivintDevice.DEVICE_TYPE_DOOR_LOCK:
+                VivintCloudSession.DoorLock
             }
             return mapping.get(type_string, VivintCloudSession.UnknownDevice)
 
@@ -287,6 +289,17 @@ class VivintCloudSession(object):
                 "val":current,
                 "name":name
             }
+
+    class DoorLock(VivintDevice):
+        """
+        Represents a door lock.
+        """
+
+        def __init__(self, body, panel_root):
+            super().__init__(body, panel_root)
+
+        def current_state(self):
+            return self._body["isl"]
 
     class Thermostat(VivintDevice):
         """
