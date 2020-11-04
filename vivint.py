@@ -141,7 +141,14 @@ class VivintCloudSession(object):
         Represents the top-level device that is a panel at a Vivint enabled location.
         """
 
-        ARM_STATES = {0: "disarmed", 3: "armed_stay", 4: "armed_away"}
+        ARM_STATE_DISARMED = 0
+        ARM_STATE_ARMED_STAY = 3
+        ARM_STATE_ARMED_AWAY = 4
+        __ARM_STATES = {
+            ARM_STATE_DISARMED: "disarmed",
+            ARM_STATE_ARMED_STAY: "armed_stay",
+            ARM_STATE_ARMED_AWAY: "armed_away"
+        }
 
         def __init__(self, session, panel_descriptor):
             super().__init__(panel_descriptor, self)
@@ -150,6 +157,8 @@ class VivintCloudSession(object):
             self.__description = panel_descriptor
             self.__system = self.__get_system()
             self.__child_devices = []
+            self.__active_partition = 1
+            self.get_devices()
 
         def __get_system(self):
             resp = self.__pool.request(
@@ -164,6 +173,22 @@ class VivintCloudSession(object):
 
         def get_bearer_token(self):
             return self.__session.get_bearer_token()
+
+        def get_active_partition(self):
+            return self.__active_partition
+
+        def partition_count(self):
+            return len(self.__system["system"]["par"])
+
+        def set_active_partition(self, partition_id):
+            if not (isinstance(partition_id, int) and partition_id <= 0
+                    and partition_id > self.partition_count()):
+                raise ValueError(
+                    "Partition ID must be a positive integer less than or equal to the number of partitions",
+                    self.partition_count())
+
+            self.__active_partition = int(partition_id)
+            self.update_devices()
 
         def update_devices(self, device_list=None):
             """
@@ -183,7 +208,9 @@ class VivintCloudSession(object):
             ]
 
             device_dict = dict([
-                (d["_id"], d) for d in self.__system["system"]["par"][0]["d"]
+                (d["_id"], d)
+                for d in self.__system["system"]["par"][self.__active_partition
+                                                        - 1]["d"]
             ])
 
             for device in device_list:
@@ -217,7 +244,51 @@ class VivintCloudSession(object):
             """
             Return the panel's arm state
             """
-            return self.ARM_STATES[self.__description["par"][0]["s"]]
+            return self.__ARM_STATES[self.__system["system"]["par"][
+                self.__active_partition - 1]["proph"]["s"][0]["val"]]
+
+        def set_armed_state(self, state):
+            """
+            Arming the panel involves PUTing against the /api/${PanelId}/${PartitionId}/armedstates endpoint
+            """
+            if isinstance(state,
+                          int) and state not in self.__ARM_STATES.keys():
+                raise ValueError(
+                    "When using numeric arming state, value must be one of the provided constants"
+                )
+            elif isinstance(state,
+                            str) and state not in self.__ARM_STATES.values():
+                raise ValueError(
+                    "When using string values for arming states, value must be one of allowed values",
+                    list(self.__ARM_STATES.values()))
+
+            resp = self.__pool.request(
+                method="PUT",
+                url="%s/api/%d/%d/armedstates" %
+                (VIVINT_API_ENDPOINT, self.__description["panid"],
+                 self.__active_partition),
+                body=json.dumps({
+                    "systemId":
+                    self.__description["panid"],
+                    "partitionId":
+                    self.__active_partition,
+                    "forceArm":
+                    False,
+                    "armState":
+                    _flip_dict(self.__ARM_STATES)[state] if isinstance(
+                        state, str) else state
+                }).encode("utf-8"),
+                headers={
+                    "Content-Type":
+                    "application/json;charset=utf-8",
+                    "Authorization":
+                    "Bearer %s" % self.get_panel_root().get_bearer_token()
+                })
+
+            if resp.status != 200:
+                raise Exception("Expected 200 response when setting armed state", resp)
+
+            return
 
         def address(self):
             """
@@ -237,11 +308,13 @@ class VivintCloudSession(object):
             of device types provided.
             """
             # ASSUMPTION
-            # This assumes that there's only one item in the "par" key
+            # This assumes that there's only one item in the "par" key, which corresponds to
+            # only one partition.
             devices = [
                 VivintCloudSession.VivintDevice.get_class(device["t"])(device,
                                                                        self)
-                for device in self.__system["system"]["par"][0]["d"]
+                for device in self.__system["system"]["par"][
+                    self.__active_partition - 1]["d"]
                 if device_type_set is None or device["t"] in device_type_set
             ]
 
@@ -316,8 +389,9 @@ class VivintCloudSession(object):
 
             request_kwargs = dict(
                 method="PUT",
-                url="%s/api/%d/1/switches/%d" %
-                (VIVINT_API_ENDPOINT, self.get_panel_root().id(), self.id()),
+                url="%s/api/%d/%d/switches/%d" %
+                (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
+                 self.get_panel_root().get_active_partition(), self.id()),
                 body=json.dumps(request_body).encode("utf-8"),
                 headers={
                     "Content-Type":
@@ -328,10 +402,10 @@ class VivintCloudSession(object):
             resp = self._pool.request(**request_kwargs)
 
             if resp.status != 200:
-                raise Exception("Unable to set multiswitch state",
-                                (resp.status, "%s/api/%d/1/switches/%d" %
-                                 (VIVINT_API_ENDPOINT,
-                                  self.get_panel_root().id(), self.id())))
+                raise Exception("Unable to set multiswitch state", (
+                    resp.status, "%s/api/%d/%d/switches/%d" %
+                    (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
+                     self.get_panel_root().get_active_partition(), self.id())))
             else:
                 self._body["val"] = val
 
@@ -364,6 +438,9 @@ class VivintCloudSession(object):
         #
         # The restore-estimates endpoint provides estimates of the time, in seconds, to
         # heat or cool to the listed temperature.
+        #
+        # An example URL for that is:
+        #  Request URL: https://vivintsky.com/api/restore-estimates/${PanelId}/${ThermostatId}
 
         def __init__(self, body, panel_root):
             super().__init__(body, panel_root)
@@ -405,8 +482,9 @@ class VivintCloudSession(object):
             """
             request_kwargs = dict(
                 method="PUT",
-                url="%s/api/%d/1/thermostats/%d" %
-                (VIVINT_API_ENDPOINT, self.get_panel_root().id(), self.id()),
+                url="%s/api/%d/%d/thermostats/%d" %
+                (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
+                 self.get_panel_root().get_active_partition(), self.id()),
                 body=json.dumps({
                     "_id": self.id(),
                     "om": _flip_dict(self.OPERATION_MODES)[mode]
@@ -429,8 +507,9 @@ class VivintCloudSession(object):
             """
             request_kwargs = dict(
                 method="PUT",
-                url="%s/api/%d/1/thermostats/%d" %
-                (VIVINT_API_ENDPOINT, self.get_panel_root().id(), self.id()),
+                url="%s/api/%d/%d/thermostats/%d" %
+                (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
+                 self.get_panel_root().get_active_partition(), self.id()),
                 body=json.dumps({
                     "_id": self.id(),
                     "fm": _flip_dict(self.FAN_MODES)[mode]
@@ -485,8 +564,9 @@ class VivintCloudSession(object):
 
             request_kwargs = dict(
                 method="PUT",
-                url="%s/api/%d/1/thermostats/%d" %
-                (VIVINT_API_ENDPOINT, self.get_panel_root().id(), self.id()),
+                url="%s/api/%d/%d/thermostats/%d" %
+                (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
+                 self.get_panel_root().get_active_partition(), self.id()),
                 body=json.dumps(request_body).encode("utf-8"),
                 headers={
                     "Content-Type":
