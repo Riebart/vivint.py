@@ -641,47 +641,28 @@ class VivintCloudSession(object):
             "GET", "%s/api/openid-configuration" % VIVINT_API_ENDPOINT)
         return json.loads(resp.data.decode()) if resp.status == 200 else None
 
-    # def __get_client_id(self):
-    #     # Fetch the app.js, which has the OIDC client app ID baked in, so we can regex it out
-    #     resp = self.__pool.request(
-    #         method="GET",
-    #         url="%s/app/scripts/app.js" % VIVINT_API_ENDPOINT,
-    #         headers={"User-Agent": "vivint.py"})
-
-    #     if resp.status != 200:
-    #         raise Exception(
-    #             "Attempt to fetch the app.js file resulted in non-200 response code",
-    #             resp.__dict__)
-
-    #     match = re.search(r'r="id_token",o="([0-9a-f]*)"', resp.data.decode())
-    #     if match is None:
-    #         raise Exception(
-    #             "Unable to find client id within the app.js package.")
-
-    #     client_id = match.group(1)
-
-    #     return client_id
-
     def __get_client_id(self):
-        # Fetch https://vivintsky.com/api/authuser and check the WWW-Authenticate header which has the client_id baked in
-        resp = self.__pool.request(
-            method="GET",
-            url=f"{VIVINT_API_ENDPOINT}/api/authuser",
-            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36"}
-        )
+        # When we ask Vivint's authuser API endpoint without credentials or a token
+        # it tells us to authenticate, and kindly gives us the client ID in the 
+        # process.
+        resp = self.__pool.request(method="GET",
+                                   url="%s/api/authuser" % VIVINT_API_ENDPOINT,
+                                   headers={"User-Agent": "vivint.py"})
 
         if resp.status != 401:
             raise Exception(
-                "Attempt to fetch authuser resulted in unexpected response code"
-            )
+                "Expected UNAUTHORIZED when fetching clientid, got otherwise",
+                resp)
 
-        # Bearer scope="openid email",redirect_uri="https://www.vivintsky.com/api/oauth-redirect/[UUID]",realm="vivintsky",response_type="code",client_id="[UUID]"
-        match = re.search(r'client_id="([0-9a-f]*)"', resp.headers['WWW-Authenticate'])
-        if match is None:
-            raise Exception(
-                "Unable to find client id within the app.js package.")
+        response_headers = {
+            a: b[1:-1]
+            for a, b in [
+                p.split("=")
+                for p in resp.headers["WWW-Authenticate"].split(",")
+            ]
+        }
 
-        client_id = match.group(1)
+        client_id = response_headers["client_id"]
 
         return client_id
 
