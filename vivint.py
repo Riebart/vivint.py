@@ -760,23 +760,27 @@ class VivintCloudSession(object):
         return json.loads(resp.data.decode()) if resp.status == 200 else None
 
     def __get_client_id(self):
-        # Fetch the app.js, which has the OIDC client app ID baked in, so we can regex it out
+        # When we ask Vivint's authuser API endpoint without credentials or a token
+        # it tells us to authenticate, and kindly gives us the client ID in the
+        # process.
         resp = self.__pool.request(method="GET",
-                                   url="%s/app/scripts/app.js" %
-                                   VIVINT_API_ENDPOINT,
+                                   url="%s/api/authuser" % VIVINT_API_ENDPOINT,
                                    headers={"User-Agent": "vivint.py"})
 
-        if resp.status != 200:
+        if resp.status != 401:
             raise Exception(
-                "Attempt to fetch the app.js file resulted in non-200 response code",
-                resp.__dict__)
+                "Expected UNAUTHORIZED when fetching clientid, got otherwise",
+                resp)
 
-        match = re.search(r'r="id_token",a="([0-9a-f]*)"', resp.data.decode())
-        if match is None:
-            raise Exception(
-                "Unable to find client id within the app.js package.")
+        response_headers = {
+            a: b[1:-1]
+            for a, b in [
+                p.split("=")
+                for p in resp.headers["WWW-Authenticate"].split(",")
+            ]
+        }
 
-        client_id = match.group(1)
+        client_id = response_headers["client_id"]
 
         return client_id
 
