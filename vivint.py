@@ -709,7 +709,7 @@ class VivintCloudSession(object):
                 "Attempt to fetch the app.js file resulted in non-200 response code",
                 resp.__dict__)
 
-        match = re.search(r'r="id_token",o="([0-9a-f]*)"', resp.data.decode())
+        match = re.search(r'r="id_token",a="([0-9a-f]*)"', resp.data.decode())
         if match is None:
             raise Exception(
                 "Unable to find client id within the app.js package.")
