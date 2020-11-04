@@ -14,6 +14,8 @@ import urllib3
 import argparse
 import threading
 
+from datetime import datetime
+
 try:
     import certifi
 except:
@@ -125,7 +127,7 @@ class VivintCloudSession(object):
                 VivintCloudSession.VivintDevice.DEVICE_TYPE_THERMOSTAT:
                 VivintCloudSession.Thermostat,
                 VivintCloudSession.VivintDevice.DEVICE_TYPE_LIGHT_MODULE:
-                VivintCloudSession.MutliSwitch,
+                VivintCloudSession.MultiSwitch,
                 VivintCloudSession.VivintDevice.DEVICE_TYPE_MOTION_SENSOR:
                 VivintCloudSession.MotionSensor
             }
@@ -240,15 +242,16 @@ class VivintCloudSession(object):
             super().__init__(body, panel_root)
 
     class MotionSensor(VivintDevice):
-        def sensor_state(self):
+        def current_state(self):
             active = self._body["ts"]
-            time = datetime.datetime.strptime(active, '%Y-%m-%dT%H:%M:%S.%f')
+            time = datetime.strptime(active, '%Y-%m-%dT%H:%M:%S.%f')
             name = self._body["n"]
             return {
                 "activitytime":time,
                 "name":name
             }
-    class MutliSwitch(VivintDevice):
+
+    class MultiSwitch(VivintDevice):
         def set_switch(self, val):
             request_body = {
                 "_id": self.id(),
@@ -269,13 +272,15 @@ class VivintCloudSession(object):
             resp = self._pool.request(**request_kwargs)
 
             if resp.status != 200:
-                logger.error("response failed: " % (resp.status))
-                logger.error("%s/api/%d/1/switches/%d" %
-                (VIVINT_API_ENDPOINT, self.get_panel_root().id(), self.id()))
+                raise Exception(
+                    "Unable to set multiswitch state", "response failed: " %
+                    (resp.status, "%s/api/%d/1/switches/%d" %
+                     (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
+                      self.id())))
             else:
                 self._body["val"] = val
 
-        def multi_swtich_state(self):
+        def current_state(self):
             current = self._body["val"]
             name = self._body["n"]
             return {
