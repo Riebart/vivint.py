@@ -14,6 +14,8 @@ import urllib3
 import argparse
 import threading
 
+from datetime import datetime
+
 try:
     import certifi
 except:
@@ -81,6 +83,9 @@ class VivintCloudSession(object):
         # This specifically is the multi-level light module.
         DEVICE_TYPE_LIGHT_MODULE = "multilevel_switch_device"
 
+        # Represents wireless sensors like door sensors but also hard wired motion detectors
+        DEVICE_TYPE_MOTION_SENSOR = "wireless_sensor"
+
         def __init__(self, body, panel_root):
             self._body = body
             self.__panel_root = panel_root
@@ -120,7 +125,11 @@ class VivintCloudSession(object):
         def get_class(type_string):
             mapping = {
                 VivintCloudSession.VivintDevice.DEVICE_TYPE_THERMOSTAT:
-                VivintCloudSession.Thermostat
+                VivintCloudSession.Thermostat,
+                VivintCloudSession.VivintDevice.DEVICE_TYPE_LIGHT_MODULE:
+                VivintCloudSession.MultiSwitch,
+                VivintCloudSession.VivintDevice.DEVICE_TYPE_MOTION_SENSOR:
+                VivintCloudSession.MotionSensor
             }
             return mapping.get(type_string, VivintCloudSession.UnknownDevice)
 
@@ -231,6 +240,53 @@ class VivintCloudSession(object):
 
         def __init__(self, body, panel_root):
             super().__init__(body, panel_root)
+
+    class MotionSensor(VivintDevice):
+        def current_state(self):
+            active = self._body["ts"]
+            time = datetime.strptime(active, '%Y-%m-%dT%H:%M:%S.%f')
+            name = self._body["n"]
+            return {
+                "activitytime":time,
+                "name":name
+            }
+
+    class MultiSwitch(VivintDevice):
+        def set_switch(self, val):
+            request_body = {
+                "_id": self.id(),
+                "val" : val
+            }
+
+            request_kwargs = dict(
+                method="PUT",
+                url="%s/api/%d/1/switches/%d" %
+                (VIVINT_API_ENDPOINT, self.get_panel_root().id(), self.id()),
+                body=json.dumps(request_body).encode("utf-8"),
+                headers={
+                    "Content-Type":
+                    "application/json;charset=utf-8",
+                    "Authorization":
+                    "Bearer %s" % self.get_panel_root().get_bearer_token()
+                })
+            resp = self._pool.request(**request_kwargs)
+
+            if resp.status != 200:
+                raise Exception(
+                    "Unable to set multiswitch state", "response failed: " %
+                    (resp.status, "%s/api/%d/1/switches/%d" %
+                     (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
+                      self.id())))
+            else:
+                self._body["val"] = val
+
+        def current_state(self):
+            current = self._body["val"]
+            name = self._body["n"]
+            return {
+                "val":current,
+                "name":name
+            }
 
     class Thermostat(VivintDevice):
         """
