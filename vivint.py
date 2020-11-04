@@ -45,8 +45,8 @@ def _urllib_pool():
     if "certifi" not in sys.modules:
         return urllib3.PoolManager()
     else:
-        return urllib3.PoolManager(
-            cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+        return urllib3.PoolManager(cert_reqs='CERT_REQUIRED',
+                                   ca_certs=certifi.where())
 
 
 class VivintCloudSession(object):
@@ -55,7 +55,6 @@ class VivintCloudSession(object):
     and refreshing the token as necessary. This is required for all other cloud-related
     operations.
     """
-
     class VivintDevice(object):
         """
         A top level abstract type that represents all types of Vivint devices.
@@ -131,7 +130,9 @@ class VivintCloudSession(object):
                 VivintCloudSession.VivintDevice.DEVICE_TYPE_MOTION_SENSOR:
                 VivintCloudSession.MotionSensor,
                 VivintCloudSession.VivintDevice.DEVICE_TYPE_DOOR_LOCK:
-                VivintCloudSession.DoorLock
+                VivintCloudSession.DoorLock,
+                VivintCloudSession.VivintDevice.DEVICE_CAMERA:
+                VivintCloudSession.Camera
             }
             return mapping.get(type_string, VivintCloudSession.UnknownDevice)
 
@@ -153,8 +154,8 @@ class VivintCloudSession(object):
         def __get_system(self):
             resp = self.__pool.request(
                 method="GET",
-                url="%s/api/systems/%d" % (VIVINT_API_ENDPOINT,
-                                           self.__description["panid"]),
+                url="%s/api/systems/%d" %
+                (VIVINT_API_ENDPOINT, self.__description["panid"]),
                 headers={
                     "Authorization": "Bearer %s" % self.get_bearer_token()
                 })
@@ -187,6 +188,24 @@ class VivintCloudSession(object):
 
             for device in device_list:
                 device.update_body(device_dict[device.id()])
+
+        def get_rtsp_credentials(self):
+            resp = self.__pool.request(
+                method="GET",
+                url="%s/api/panel-login/%d" %
+                (VIVINT_API_ENDPOINT, self.__description["panid"]),
+                headers={
+                    "Authorization": "Bearer %s" % self.get_bearer_token()
+                })
+
+            if resp.status != 200:
+                raise Exception("Unable to fetch RTSP credentials", resp)
+
+            resp_json = json.loads(resp.data.decode())
+            username = resp_json["n"]
+            password = resp_json["pswd"]
+
+            return {"username": username, "password": password}
 
         def id(self):
             """
@@ -239,9 +258,44 @@ class VivintCloudSession(object):
         """
         Represents a device that does not have a model associated with the type.
         """
-
         def __init__(self, body, panel_root):
             super().__init__(body, panel_root)
+
+    class Camera(VivintDevice):
+        """
+        Represents a basic camera able to expose a few pieces of information.
+
+        This is primarily here to be able to expose the public and private RTSP endpoints.
+        """
+        def __init__(self, body, panel_root):
+            super().__init__(body, panel_root)
+
+        def name(self):
+            return self._body["n"]
+
+        def private_rtsp_endpoint(self):
+            return {
+                "hd_video": self._body["ciu"][0],
+                "sd_video": self._body["cius"][0],
+                "audio_only": self._body["cea"][0]
+            }
+
+        def hd_video_resolution(self):
+            return [int(dim) for dim in self._body["hdr"].split("x")]
+
+        def public_rtsp_endpoint(self):
+            return {
+                "hd_video": self._body["cetu"][0],
+                "sd_video": self._body["cetus"][0],
+                "audio_only": self._body["cea"][0]
+            }
+
+        def rtsp_authentication_url(self, url):
+            return "%s://%s:%s@%s" % (
+                "rtsps" if ":443/" in url else "rtsp",
+                self.get_panel_root().get_rtsp_credentials()["username"],
+                self.get_panel_root().get_rtsp_credentials()["password"],
+                url[7:])
 
     class MotionSensor(VivintDevice):
         def __init__(self, body, panel_root):
@@ -251,20 +305,14 @@ class VivintCloudSession(object):
             active = self._body["ts"]
             time = datetime.strptime(active, '%Y-%m-%dT%H:%M:%S.%f')
             name = self._body["n"]
-            return {
-                "activitytime":time,
-                "name":name
-            }
+            return {"activitytime": time, "name": name}
 
     class MultiSwitch(VivintDevice):
         def __init__(self, body, panel_root):
             super().__init__(body, panel_root)
 
         def set_switch(self, val):
-            request_body = {
-                "_id": self.id(),
-                "val" : val
-            }
+            request_body = {"_id": self.id(), "val": val}
 
             request_kwargs = dict(
                 method="PUT",
@@ -280,27 +328,22 @@ class VivintCloudSession(object):
             resp = self._pool.request(**request_kwargs)
 
             if resp.status != 200:
-                raise Exception(
-                    "Unable to set multiswitch state", "response failed: " %
-                    (resp.status, "%s/api/%d/1/switches/%d" %
-                     (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
-                      self.id())))
+                raise Exception("Unable to set multiswitch state",
+                                (resp.status, "%s/api/%d/1/switches/%d" %
+                                 (VIVINT_API_ENDPOINT,
+                                  self.get_panel_root().id(), self.id())))
             else:
                 self._body["val"] = val
 
         def current_state(self):
             current = self._body["val"]
             name = self._body["n"]
-            return {
-                "val":current,
-                "name":name
-            }
+            return {"val": current, "name": name}
 
     class DoorLock(VivintDevice):
         """
         Represents a door lock.
         """
-
         def __init__(self, body, panel_root):
             super().__init__(body, panel_root)
 
@@ -334,8 +377,8 @@ class VivintCloudSession(object):
             apps, except in the rules section.
             """
             if state not in self.CLIMATE_STATES:
-                raise ValueError(
-                    "State must be one of %s" % repr(self.CLIMATE_STATES))
+                raise ValueError("State must be one of %s" %
+                                 repr(self.CLIMATE_STATES))
 
             request_kwargs = dict(
                 method="PUT",
@@ -353,7 +396,8 @@ class VivintCloudSession(object):
             resp = self._pool.request(**request_kwargs)
 
             if resp.status != 200:
-                raise Exception("Setting state resulted in non-200 response", resp)
+                raise Exception("Setting state resulted in non-200 response",
+                                resp)
 
         def set_operation_mode(self, mode):
             """
@@ -528,9 +572,8 @@ class VivintCloudSession(object):
                     if cdelta == hdelta:
                         setpoint = float('nan')
                     else:
-                        setpoint = min(
-                            [csp, cdelta], [hsp, hdelta],
-                            key=lambda i: i[1])[0]
+                        setpoint = min([csp, cdelta], [hsp, hdelta],
+                                       key=lambda i: i[1])[0]
 
             return {
                 "climate_state": self.get_panel_root().climate_state(),
@@ -718,10 +761,10 @@ class VivintCloudSession(object):
 
     def __get_client_id(self):
         # Fetch the app.js, which has the OIDC client app ID baked in, so we can regex it out
-        resp = self.__pool.request(
-            method="GET",
-            url="%s/app/scripts/app.js" % VIVINT_API_ENDPOINT,
-            headers={"User-Agent": "vivint.py"})
+        resp = self.__pool.request(method="GET",
+                                   url="%s/app/scripts/app.js" %
+                                   VIVINT_API_ENDPOINT,
+                                   headers={"User-Agent": "vivint.py"})
 
         if resp.status != 200:
             raise Exception(
@@ -828,8 +871,8 @@ class VivintCloudSession(object):
                 "Content-Type":
                 "application/x-www-form-urlencoded",
                 "Cookie":
-                "oauth_state=%s; oidc_nonce=%s; PF=%s;" % (state, nonce,
-                                                           pf_token)
+                "oauth_state=%s; oidc_nonce=%s; PF=%s;" %
+                (state, nonce, pf_token)
             },
             body=urlencode({
                 "pf.username": username,
@@ -857,8 +900,8 @@ class VivintCloudSession(object):
                 "Unable to retrieve Location header from login response")
 
         location_params = dict([
-            kv.split("=", 1) for kv in re.search(r'/#(.*)$', location_hdr)
-            .group(0)[2:].split("&")
+            kv.split("=", 1) for kv in re.search(
+                r'/#(.*)$', location_hdr).group(0)[2:].split("&")
         ])
 
         if "id_token" not in location_params:
