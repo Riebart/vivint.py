@@ -244,6 +244,9 @@ class VivintCloudSession(object):
             super().__init__(body, panel_root)
 
     class MotionSensor(VivintDevice):
+        def __init__(self, body, panel_root):
+            super().__init__(body, panel_root)
+
         def current_state(self):
             active = self._body["ts"]
             time = datetime.strptime(active, '%Y-%m-%dT%H:%M:%S.%f')
@@ -254,6 +257,9 @@ class VivintCloudSession(object):
             }
 
     class MultiSwitch(VivintDevice):
+        def __init__(self, body, panel_root):
+            super().__init__(body, panel_root)
+
         def set_switch(self, val):
             request_body = {
                 "_id": self.id(),
