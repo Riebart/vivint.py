@@ -184,8 +184,8 @@ class VivintCloudSession(object):
             return self.__description["panid"]
 
         def get_armed_state(self):
-            """ 
-            Return the panel's arm state 
+            """
+            Return the panel's arm state
             """
             return self.ARM_STATES[self.__description["par"][0]["s"]]
 
@@ -253,7 +253,7 @@ class VivintCloudSession(object):
         def set_state(self, state):
             """
             Set the state of the panel location to one of the Smart Assistant states.
-            
+
             This is a bit of a semantic oddity, as the change is made to the panel
             object, but it only ever makes sense in the context of a thermostat in the
             apps, except in the rules section.
@@ -278,7 +278,7 @@ class VivintCloudSession(object):
             resp = self._pool.request(**request_kwargs)
 
             if resp.status != 200:
-                raise Exception("Setting state resulted in non-200 response")
+                raise Exception("Setting state resulted in non-200 response", resp)
 
         def set_operation_mode(self, mode):
             """
