@@ -26,12 +26,7 @@ from http.cookies import SimpleCookie
 # pylint: disable=E0611,E0401
 from urllib.parse import urlencode, unquote, quote, quote_plus
 
-VIVINT_AUTH_ENDPOINT = "https://id.vivint.com"
 VIVINT_API_ENDPOINT = "https://www.vivintsky.com"
-
-BASE62_TABLE = [chr(ord('a') + i) for i in range(26)] + [
-    chr(ord('A') + i) for i in range(26)
-] + [chr(ord('0') + i) for i in range(10)]
 
 
 def _flip_dict(d):
@@ -51,7 +46,7 @@ def _urllib_pool():
 
 class VivintCloudSession(object):
     """
-    Implements the surrounding components for authenticating, retrieving a bearer token,
+    Implements the surrounding components for authenticating, retrieving a session token,
     and refreshing the token as necessary. This is required for all other cloud-related
     operations.
     """
@@ -93,6 +88,9 @@ class VivintCloudSession(object):
             # When set to False, this device will not be updated when the panel root's
             # update_devices() method is called.
             self.receive_updates = True
+
+        def get_authorization_headers(self):
+            return self.__panel_root.get_authorization_headers()
 
         def get_panel_root(self):
             """
@@ -165,17 +163,15 @@ class VivintCloudSession(object):
                 method="GET",
                 url="%s/api/systems/%d" %
                 (VIVINT_API_ENDPOINT, self.__description["panid"]),
-                headers={
-                    "Authorization": "Bearer %s" % self.get_bearer_token()
-                })
+                headers=self.get_authorization_headers())
 
             return json.loads(resp.data.decode())
 
-        def get_bearer_token(self):
-            return self.__session.get_bearer_token()
-
         def get_active_partition(self):
             return self.__active_partition
+
+        def get_authorization_headers(self):
+            return self.__session.get_authorization_headers()
 
         def partition_count(self):
             return len(self.__system["system"]["par"])
@@ -221,9 +217,7 @@ class VivintCloudSession(object):
                 method="GET",
                 url="%s/api/panel-login/%d" %
                 (VIVINT_API_ENDPOINT, self.__description["panid"]),
-                headers={
-                    "Authorization": "Bearer %s" % self.get_bearer_token()
-                })
+                headers=self.get_authorization_headers())
 
             if resp.status != 200:
                 raise Exception("Unable to fetch RTSP credentials", resp)
@@ -279,14 +273,15 @@ class VivintCloudSession(object):
                         state, str) else state
                 }).encode("utf-8"),
                 headers={
-                    "Content-Type":
-                    "application/json;charset=utf-8",
-                    "Authorization":
-                    "Bearer %s" % self.get_panel_root().get_bearer_token()
+                    **{
+                        "Content-Type": "application/json;charset=utf-8"
+                    },
+                    **self.get_authorization_headers()
                 })
 
             if resp.status != 200:
-                raise Exception("Expected 200 response when setting armed state", resp)
+                raise Exception(
+                    "Expected 200 response when setting armed state", resp)
 
             return
 
@@ -394,10 +389,10 @@ class VivintCloudSession(object):
                  self.get_panel_root().get_active_partition(), self.id()),
                 body=json.dumps(request_body).encode("utf-8"),
                 headers={
-                    "Content-Type":
-                    "application/json;charset=utf-8",
-                    "Authorization":
-                    "Bearer %s" % self.get_panel_root().get_bearer_token()
+                    **{
+                        "Content-Type": "application/json;charset=utf-8"
+                    },
+                    **self.get_authorization_headers()
                 })
             resp = self._pool.request(**request_kwargs)
 
@@ -465,10 +460,10 @@ class VivintCloudSession(object):
                     "csce": state
                 }).encode(("utf-8")),
                 headers={
-                    "Content-Type":
-                    "application/json;charset=utf-8",
-                    "Authorization":
-                    "Bearer %s" % self.get_panel_root().get_bearer_token()
+                    **{
+                        "Content-Type": "application/json;charset=utf-8"
+                    },
+                    **self.get_authorization_headers()
                 })
             resp = self._pool.request(**request_kwargs)
 
@@ -490,10 +485,10 @@ class VivintCloudSession(object):
                     "om": _flip_dict(self.OPERATION_MODES)[mode]
                 }).encode("utf-8"),
                 headers={
-                    "Content-Type":
-                    "application/json;charset=utf-8",
-                    "Authorization":
-                    "Bearer %s" % self.get_panel_root().get_bearer_token()
+                    **{
+                        "Content-Type": "application/json;charset=utf-8"
+                    },
+                    **self.get_authorization_headers()
                 })
             resp = self._pool.request(**request_kwargs)
 
@@ -515,10 +510,10 @@ class VivintCloudSession(object):
                     "fm": _flip_dict(self.FAN_MODES)[mode]
                 }).encode("utf-8"),
                 headers={
-                    "Content-Type":
-                    "application/json;charset=utf-8",
-                    "Authorization":
-                    "Bearer %s" % self.get_panel_root().get_bearer_token()
+                    **{
+                        "Content-Type": "application/json;charset=utf-8"
+                    },
+                    **self.get_authorization_headers()
                 })
             resp = self._pool.request(**request_kwargs)
 
@@ -569,10 +564,10 @@ class VivintCloudSession(object):
                  self.get_panel_root().get_active_partition(), self.id()),
                 body=json.dumps(request_body).encode("utf-8"),
                 headers={
-                    "Content-Type":
-                    "application/json;charset=utf-8",
-                    "Authorization":
-                    "Bearer %s" % self.get_panel_root().get_bearer_token()
+                    **{
+                        "Content-Type": "application/json;charset=utf-8"
+                    },
+                    **self.get_authorization_headers()
                 })
             resp = self._pool.request(**request_kwargs)
 
@@ -673,11 +668,10 @@ class VivintCloudSession(object):
                  nonce=None,
                  pf_token=None):
         self.__pool = _urllib_pool()
-        self.__openid_config = self.__get_openid_config()
 
         # Prefer username/password authentication if both are provided.
         if username is not None and password is not None:
-            self.__auth_elements = self.__login(username, password)
+            self.__login(username, password)
             # TODO Obfuscate the username and password here
             self.__username = username
             self.__password = password
@@ -685,24 +679,11 @@ class VivintCloudSession(object):
             self.__username = None
             self.__password = None
 
-            self.__auth_elements = {
-                "nonce": [nonce],
-                "state": [state],
-                "pf_token": {
-                    # TODO This isn't right
-                    # It's probably a fixed number of urlsafe b64 encoded bytes.
-                    # "short": [pf_token[:24]],
-                    "long": [pf_token]
-                },
-                # "client_id": self.__get_client_id(),
-                # # This is unnecessary, and only used for password logins.
-                # "api_id": None,
-                "id_token": []
-            }
+            self.__auth_elements = {"headers": None}
             self.__refresh_token()
         else:
             raise ValueError(
-                "Must supply either a username/password pair or a nonce/state/PF triple"
+                "Must supply either a username/password pair or a authorization cookie"
             )
 
         self.__auth_user_data = self.__authuser()
@@ -716,7 +697,7 @@ class VivintCloudSession(object):
         """
         # TODO Make this exception-safe
         while self.__run_threads:
-            if self.__parse_id_token()["payload"]["exp"] - time.time() < 60:
+            if self.__parse_credential_expiry() - time.time() < 60:
                 self.__refresh_token()
             time.sleep(60)
 
@@ -729,140 +710,20 @@ class VivintCloudSession(object):
         thread.start()
         return thread
 
-    def get_bearer_token(self):
-        """
-        Return a token suitable for inclusion into an Authorization header as
-        a bearer token, refreshing the existing one if necessary.
-        """
-        id_token = self.__auth_elements["id_token"][-1]
-        if time.time() > self.__parse_id_token(id_token)["payload"]["exp"]:
-            self.__refresh_token()
-
-        return id_token
+    def __parse_credential_expiry(self):
+        return time.time() + 120
 
     def __refresh_token(self):
-        """
-        Ping the token-delegate endpoint for a refresh token, geting the token-delegate
-        endpoint from the OID configuration.
-        """
-        nonce = "".join([BASE62_TABLE[i % 62] for i in os.urandom(32)])
-        state = "".join([BASE62_TABLE[i % 62] for i in os.urandom(32)])
-
-        # When requesting a new token from the delegate, the following must be true:
-        # - The original state and nonce must be in the Cookies header
-        # - The new state and nonce must be in the query string
-        #  > These don't appear to ever be used.
-        # - The PF token supplied in the Cookies header must match that provided back
-        #   in the Set-Cookie header from the original response to the auth ping
-        #  > That is, not the "short" one, the "long" one.
-        #
-        # The response satisfies the following:
-        # - The body is a JSON document with two keys: id_token, state
-        # - The state value is as usual, "replay:%s"
-        # - The new nonce to use is in the ID token returned.
-        #  > Neither the new state or nonce need to be used anywhere.
-
-        resp = self.__pool.request(
+        self.__auth_elements = self.__auth_elements
+        authuser_resp = self.__pool.request(
             method="GET",
-            url=self.__openid_config["token_delegate_endpoint"],
-            fields={
-                "nonce": nonce,
-                "state": "replay:%s" % state,
-                "response_type": "id_token",
-                "client_id": self.__get_client_id(),
-                "redirect_uri": "https://www.vivintsky.com/app/",
-                "scope": "openid email",
-                "pfidpadapterid": "vivintidp1"
-            },
-            headers={
-                "Cookie":
-                "oidc_nonce=%s; oauth_state=%s; PF=%s;" %
-                (self.__auth_elements["nonce"][-1],
-                 self.__auth_elements["state"][-1],
-                 self.__auth_elements["pf_token"]["long"][-1])
-            })
+            url="%s/api/authuser" % VIVINT_API_ENDPOINT,
+            headers=self.get_authorization_headers())
 
-        if resp.status == 200:
-            resp_body = json.loads(resp.data.decode())
-            token_parts = self.__parse_id_token(resp_body["id_token"])
-            self.__auth_elements["id_token"].append(resp_body["id_token"])
-
-            # It is the last valid value that we care about, because the new ones
-            # generated aren't used for anything... oddly enough. So append the one
-            # we used to get the new token to the end, so we keep using it.
-            self.__auth_elements["state"] += [
-                unquote(resp_body["state"]).split(":", 1)[1],
-                self.__auth_elements["state"][-2]
-            ]
-            self.__auth_elements["nonce"] += [
-                token_parts["payload"]["nonce"],
-                self.__auth_elements["nonce"][-2]
-            ]
-        if resp.status != 200:
-            # Attempt to re-login if there is a username and password
-            if self.__username is not None and self.__password is not None:
-                new_auth_elements = self.__login(self.__username,
-                                                 self.__password)
-                self.__auth_elements["id_token"] += new_auth_elements[
-                    "id_token"]
-                self.__auth_elements["pf_token"]["long"] += new_auth_elements[
-                    "pf_token"]["long"]
-                self.__auth_elements["state"] += new_auth_elements["state"]
-                self.__auth_elements["nonce"] += new_auth_elements["nonce"]
-            else:
-                raise Exception(
-                    "Unable to refresh token with non-200 error, and no username/password available"
-                )
-
-    def __parse_id_token(self, id_token=None):
-        """
-        Parse out the components of the ID token.
-        """
-        if id_token is None:
-            id_token = self.get_bearer_token()
-        header_raw, payload_raw, data = [
-            base64.urlsafe_b64decode(p + "=" * ((4 - (len(p) % 4)) % 4))
-            for p in id_token.split(".")
-        ]
-
-        return {
-            "header": json.loads(header_raw.decode()),
-            "payload": json.loads(payload_raw.decode()),
-            "data": base64.b64encode(data).decode()
+        ### TODO Error handling here in case the set-cookie header is missing.
+        self.__auth_elements["headers"] = {
+            "Cookie": authuser_resp.headers["Set-Cookie"]
         }
-
-    def __get_openid_config(self):
-        """
-        Fetch the OpenID Connect configuration data from the Vivint webservice
-        """
-        resp = self.__pool.request(
-            "GET", "%s/api/openid-configuration" % VIVINT_API_ENDPOINT)
-        return json.loads(resp.data.decode()) if resp.status == 200 else None
-
-    def __get_client_id(self):
-        # When we ask Vivint's authuser API endpoint without credentials or a token
-        # it tells us to authenticate, and kindly gives us the client ID in the
-        # process.
-        resp = self.__pool.request(method="GET",
-                                   url="%s/api/authuser" % VIVINT_API_ENDPOINT,
-                                   headers={"User-Agent": "vivint.py"})
-
-        if resp.status != 401:
-            raise Exception(
-                "Expected UNAUTHORIZED when fetching clientid, got otherwise",
-                resp)
-
-        response_headers = {
-            a: b[1:-1]
-            for a, b in [
-                p.split("=")
-                for p in resp.headers["WWW-Authenticate"].split(",")
-            ]
-        }
-
-        client_id = response_headers["client_id"]
-
-        return client_id
 
     def __login(self, username, password):
         """
@@ -870,157 +731,32 @@ class VivintCloudSession(object):
 
         Returns an object that includes the appropriate OpenID components.
         """
-        # As per the app.js, this is just random garbage
-        nonce = "".join([BASE62_TABLE[i % 62] for i in os.urandom(32)])
-        state = "".join([BASE62_TABLE[i % 62] for i in os.urandom(32)])
 
-        client_id = self.__get_client_id()
+        login_resp = self.__pool.request(method="POST",
+                                         url="%s/api/login" %
+                                         (VIVINT_API_ENDPOINT),
+                                         body=json.dumps({
+                                             "username": username,
+                                             "password": password
+                                         }).encode("utf-8"))
 
-        login_form_resp = self.__pool.request(
-            method="GET",
-            url="%s/as/authorization.oauth2?%s" %
-            (VIVINT_AUTH_ENDPOINT,
-             urlencode(
-                 {
-                     "nonce": nonce,
-                     "state": "replay:%s" % state,
-                     "response_type": "id_token",
-                     "client_id": client_id,
-                     "redirect_uri": "%s/app/" % VIVINT_AUTH_ENDPOINT,
-                     "scope": "openid email",
-                     "pfidpadapterid": "vivintidp1"
-                 },
-                 quote_via=quote)),
-            headers={
-                "Referer": "%s/app/" % VIVINT_AUTH_ENDPOINT,
-                "User-Agent": "pyvint"
-            })
-
-        if login_form_resp.headers.get("Set-Cookie", None) is None:
+        if login_resp.headers.get("Set-Cookie", None) is None:
             raise Exception("Unable to get Set-Cookie header from response")
 
-        # The cookies returned by urllib3 when multiple Set-Cookie headers do NOT
-        # work with the SimpleCookie class, without some preprocessing.
-        #
-        # So clean this up by fixing a couple of the weird spots.
-        cookie_split = re.split(r', *([^;]*=)',
-                                login_form_resp.headers["Set-Cookie"])
-        login_form_return_cookies = SimpleCookie(
-            "".join([cookie_split[0] + ";"] + [
-                cookie_split[i] + cookie_split[i + 1] + ";"
-                for i in range(1, len(cookie_split), 2)
-            ]))
+        self.__auth_elements = dict(
+            headers={"Cookie": login_resp.headers["Set-Cookie"]})
 
-        pf_token = login_form_return_cookies["PF"].value
-
-        if pf_token is None:
-            raise Exception("Unable to get PF token from Set-Cookie header")
-
-        match = re.search(r'"/as/([^/]*)/resume/as/authorization.ping"',
-                          login_form_resp.data.decode())
-
-        if match is None:
-            raise Exception("Unable to find api ID from login form HTML")
-
-        api_id = match.group(1)
-
-        login_url = "%s/as/%s/resume/as/authorization.ping" % (
-            VIVINT_AUTH_ENDPOINT, api_id)
-
-        # NOTABLE NOTE
-        #
-        # There's a weird thing with the Vivint API here on this call, where if there
-        # are nonce and state values in the cookies and the query string, the cookies
-        # take precedence. This is odd since there's a weird behaviour with their web
-        # JavaScript code that will provide both, with the code inheriting the cookies
-        # from somewhere as well as generating its own values for the query string.
-        #
-        # The webapp will use the generated values (supplied in the query string) for
-        # further API calls, despite being unnecessary given the bearer token is
-        # provided. But thankfully the correct values, being kept in the tokens, are
-        # still used for all token refreshes to the delegate endpoint.
-
-        login_resp = self.__pool.request(
-            method="POST",
-            url=login_url,
-            headers={
-                "Referrer":
-                "%s/app/" % VIVINT_AUTH_ENDPOINT,
-                "User-Agent":
-                "pyvint",
-                "Accept":
-                "*/*",
-                "Accept-Encoding":
-                "gzip, deflate",
-                "Content-Type":
-                "application/x-www-form-urlencoded",
-                "Cookie":
-                "oauth_state=%s; oidc_nonce=%s; PF=%s;" %
-                (state, nonce, pf_token)
-            },
-            body=urlencode({
-                "pf.username": username,
-                "pf.pass": password
-            }),
-            redirect=False)
-
-        cookie_split = re.split(r', *([^;]*=)',
-                                login_resp.headers["Set-Cookie"])
-        login_resp_return_cookies = SimpleCookie(
-            "".join([cookie_split[0] + ";"] + [
-                cookie_split[i] + cookie_split[i + 1] + ";"
-                for i in range(1, len(cookie_split), 2)
-            ]))
-
-        pf_token_long = login_resp_return_cookies["PF"].value
-
-        if pf_token_long is None:
-            raise Exception("Unable to get PF token from Set-Cookie header")
-
-        location_hdr = login_resp.headers.get("Location", None)
-
-        if location_hdr is None:
-            raise Exception(
-                "Unable to retrieve Location header from login response")
-
-        location_params = dict([
-            kv.split("=", 1) for kv in re.search(
-                r'/#(.*)$', location_hdr).group(0)[2:].split("&")
-        ])
-
-        if "id_token" not in location_params:
-            raise Exception(
-                "id_token not provided in Location header of login attempt")
-
-        if "state" not in location_params:
-            raise Exception(
-                "New state value not present in Location header of login attempt"
-            )
-
-        id_token_parts = self.__parse_id_token(location_params["id_token"])
-
-        return {
-            "nonce": [nonce, id_token_parts["payload"]["nonce"]],
-            "state":
-            [state, unquote(location_params["state"]).split(":", 1)[1]],
-            # "client_id": client_id,
-            "pf_token": {
-                # "short": [pf_token],
-                "long": [pf_token_long]
-            },
-            # "api_id": api_id,
-            "id_token": [location_params["id_token"]]
-        }
+    def get_authorization_headers(self):
+        return self.__auth_elements["headers"]
 
     def __authuser(self):
         """
         Poll the Vivint authuser API endpoint resource to gather user-related data including
         enumeration of the systems that user has access to.
         """
-        resp = self.__pool.request(
-            method="GET",
-            url="%s/api/authuser" % VIVINT_API_ENDPOINT,
-            headers={"Authorization": "Bearer %s" % self.get_bearer_token()})
+        resp = self.__pool.request(method="GET",
+                                   url="%s/api/authuser" % VIVINT_API_ENDPOINT,
+                                   headers=self.get_authorization_headers())
 
         return json.loads(resp.data.decode())
 
