@@ -127,6 +127,8 @@ class VivintCloudSession(object):
                 VivintCloudSession.MultiSwitch,
                 VivintCloudSession.VivintDevice.DEVICE_TYPE_MOTION_SENSOR:
                 VivintCloudSession.MotionSensor,
+                VivintCloudSession.VivintDevice.DEVICE_TYPE_WIRELESS_SENSOR:
+                VivintCloudSession.WirelessSensor,
                 VivintCloudSession.VivintDevice.DEVICE_TYPE_DOOR_LOCK:
                 VivintCloudSession.DoorLock,
                 VivintCloudSession.VivintDevice.DEVICE_CAMERA:
@@ -374,6 +376,62 @@ class VivintCloudSession(object):
             time = datetime.strptime(active, '%Y-%m-%dT%H:%M:%S.%f')
             name = self._body["n"]
             return {"activitytime": time, "name": name}
+
+    class WirelessSensor(VivintDevice):
+        # I'm just guessing at state=1 here...
+        # Legit not feeling like walking all the way downstairs to open a door and test. 😅
+        states = {0: "enabled-closed", 1: "enabled-open", 2: "bypassed"}
+
+        def __init__(self, body, panel_root):
+            super().__init__(body, panel_root)
+
+        def current_state(self):
+            # The current state is stored in the "b" parameter, and that's what's updated by a PUT
+            # as well.
+            active = self._body["ts"]
+            time = datetime.strptime(active, '%Y-%m-%dT%H:%M:%S.%f')
+            name = self._body["n"]
+            state = self.states[self._body["b"]]
+            return {
+                "id": self.id(),
+                "activitytime": time,
+                "name": name,
+                "state": state,
+                "battery_level_percent": self._body.get("bl", None)
+            }
+
+        def __set(self, val):
+            # To bypass the sensor, you set "b" to True, and to re-enable you set it to false
+            # This manifests as either 0 or 2 in the value when it gets updated. It's weird.
+            request_body = {"_id": self.id(), "b": val}
+
+            request_kwargs = dict(
+                method="PUT",
+                url="%s/api/%d/%d/sensors/%d" %
+                (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
+                 self.get_panel_root().get_active_partition(), self.id()),
+                body=json.dumps(request_body).encode("utf-8"),
+                headers={
+                    **{
+                        "Content-Type": "application/json;charset=utf-8"
+                    },
+                    **self.get_authorization_headers()
+                })
+            resp = self._pool.request(**request_kwargs)
+
+            if resp.status != 200:
+                raise Exception("Unable to set multiswitch state", (
+                    resp.status, "%s/api/%d/%d/switches/%d" %
+                    (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
+                     self.get_panel_root().get_active_partition(), self.id())))
+            else:
+                self._body["b"] = 2 if val else 0
+
+        def bypass(self):
+            self.__set(True)
+
+        def enable(self):
+            self.__set(False)
 
     class MultiSwitch(VivintDevice):
         def __init__(self, body, panel_root):
