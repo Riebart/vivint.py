@@ -380,29 +380,28 @@ class VivintCloudSession(object):
     class WirelessSensor(VivintDevice):
         # I'm just guessing at state=1 here...
         # Legit not feeling like walking all the way downstairs to open a door and test. 😅
-        states = {0: "enabled-closed", 1: "enabled-open", 2: "bypassed"}
+        states = {0: "enabled", 2: "bypassed"}
 
         def __init__(self, body, panel_root):
             super().__init__(body, panel_root)
 
         def current_state(self):
-            # The current state is stored in the "b" parameter, and that's what's updated by a PUT
-            # as well.
             active = self._body["ts"]
             time = datetime.strptime(active, '%Y-%m-%dT%H:%M:%S.%f')
-            name = self._body["n"]
-            state = self.states[self._body["b"]]
             return {
                 "id": self.id(),
                 "activitytime": time,
-                "name": name,
-                "state": state,
+                "name": self._body["n"],
+                "triggered": self._body["s"],
+                "enabled": self._body["b"] == 0,
                 "battery_level_percent": self._body.get("bl", None)
             }
 
         def __set(self, val):
             # To bypass the sensor, you set "b" to True, and to re-enable you set it to false
-            # This manifests as either 0 or 2 in the value when it gets updated. It's weird.
+            # This manifests as either 0 or 2 in the value when it gets updated.
+            #
+            # It's weird, and I don't like it.
             request_body = {"_id": self.id(), "b": val}
 
             request_kwargs = dict(
