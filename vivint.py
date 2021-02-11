@@ -419,8 +419,8 @@ class VivintCloudSession(object):
             resp = self._pool.request(**request_kwargs)
 
             if resp.status != 200:
-                raise Exception("Unable to set multiswitch state", (
-                    resp.status, "%s/api/%d/%d/switches/%d" %
+                raise Exception("Unable to set wireless sensor state", (
+                    resp.status, "%s/api/%d/%d/sensors/%d" %
                     (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
                      self.get_panel_root().get_active_partition(), self.id())))
             else:
@@ -473,8 +473,42 @@ class VivintCloudSession(object):
         def __init__(self, body, panel_root):
             super().__init__(body, panel_root)
 
+        def __set(self, val):
+            request_body = {"_id": self.id(), "s": val}
+
+            request_kwargs = dict(
+                method="PUT",
+                url="%s/api/%d/%d/locks/%d" %
+                (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
+                 self.get_panel_root().get_active_partition(), self.id()),
+                body=json.dumps(request_body).encode("utf-8"),
+                headers={
+                    **{
+                        "Content-Type": "application/json;charset=utf-8"
+                    },
+                    **self.get_authorization_headers()
+                })
+            resp = self._pool.request(**request_kwargs)
+
+            if resp.status != 200:
+                raise Exception("Unable to set door lock state", (
+                    resp.status, "%s/api/%d/%d/locks/%d" %
+                    (VIVINT_API_ENDPOINT, self.get_panel_root().id(),
+                     self.get_panel_root().get_active_partition(), self.id())))
+            else:
+                self._body["s"] = val
+
+        def lock(self):
+            self.__set(True)
+
+        def unlock(self):
+            self.__set(False)
+
         def current_state(self):
-            return self._body["isl"]
+            return {
+                "battery_level_percent": self._body.get("bl", None),
+                "is_locked": self._body["s"]
+            }
 
     class Thermostat(VivintDevice):
         """
